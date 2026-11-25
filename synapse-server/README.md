@@ -12,6 +12,7 @@
 | `internal/infra/config` | L0 | `gopkg.in/yaml.v3`、`golang.org/x/net/http/httpproxy` | 22 段强类型配置树（零 Redis）、`KnownFields(true)` 严格 YAML 解析、多源覆盖加载器、全量聚合 fail-fast `Validate()`、企业代理（保底 `127.0.0.1,localhost,::1` `NO_PROXY`）与自签 PEM CA 证书池 / 子进程环境变量构建 |
 | `internal/infra/obs` | L0 | `github.com/prometheus/client_golang` | `request_id`/`company_id`/`user_id` 上下文透传与 `CopyMeta`、`SanitizeRequestID` 防日志注入、`ContextHandler -> RedactingHandler -> Text/JSON` 脱敏 `slog`（支持 `0640` 文件双写）与 `RedactDSN`、独立隔离 Prometheus Registry（携带 `application` 标签及 6 项 `superagent_*` 业务指标 + HTTP 耗时直方图） |
 | `internal/infra/lifecycle` | L0 | **仅 Go 标准库** | `BackgroundGroup`（协程生命周期托管、`panic recover` 记堆栈与回调、停机后拒绝新任务、超时列出卡住任务名）与 `ShutdownManager`（5 阶段升序 / 同阶段 LIFO 逆序停机、30s 默认总预算裁剪、`SIGINT`/`SIGTERM` 信号监听） |
+| `internal/infra/db` | L0 | `pgx/v5`、`goose/v3`、`prometheus`、`SA-01` | 调优 `pgxpool`（强制 `TimeZone=UTC` 与 `statement_timeout`、2s `Ping`、池指标）、`context` 透传 `TxManager`（嵌套 `SAVEPOINT` + panic 安全回滚）、非全局 `goose/v3` 嵌入迁移（禁 `-- +goose Up` `DROP TABLE` + 迁移锁）、PG 错误码映射、零参数泄漏慢查询 `QueryTracer`、PG 原生 `AdvisoryLock`（零 Redis）与单测隔离夹具 |
 
 ---
 
@@ -55,8 +56,19 @@
 gofmt -l .
 go vet ./...
 
-# 编译与竞态/覆盖率测试
+# 编译与竞态/覆盖率测试（离线，PG 集成测试未设 DSN 时自动 Skip）
 go build ./...
-go test -race -cover ./internal/core/apperror/... ./internal/infra/config/... ./internal/infra/obs/... ./internal/infra/lifecycle/...
+go test -race -cover ./internal/core/apperror/... ./internal/infra/config/... ./internal/infra/obs/... ./internal/infra/lifecycle/... ./internal/infra/db/...
 go test -race ./...
+
+# 面向本地 PostgreSQL 17 运行完整集成测试（使用独立临时 Schema，可并发）
+# 在仓库根目录启动本地 PG17：POSTGRES_PORT=15432 docker compose -f docker-compose.dev.yml up -d --wait
+TEST_POSTGRES_DSN="postgres://synapse:synapse@127.0.0.1:15432/synapse?sslmode=disable&TimeZone=UTC" \
+  go test -race -cover ./internal/infra/db/...
 ```
+
+### `AdvisoryLock` 使用规范（零 Redis 互斥锁）
+
+- **严禁直接对 `*pgxpool.Pool` 调用会话级 `pg_try_advisory_lock` / `pg_advisory_unlock`**（解锁若落到其他连接将导致锁永久泄漏）；
+- 所有会话级咨询锁统一通过 `db.Locker().TryWithLock(...)` 或 `db.Locker().Acquire(...)` + `lease.Release(ctx)` 执行，由 `internal/infra/db` 保证独占单条物理连接并在同连接上成对解锁归还；
+- 事务内互斥（随 `COMMIT`/`ROLLBACK` 自动释放）统一通过 `db.TryLockTx(txCtx, d.Querier(txCtx), namespace, key)` 执行。

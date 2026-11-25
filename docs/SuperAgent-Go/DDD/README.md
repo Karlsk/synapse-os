@@ -128,7 +128,7 @@ flowchart TD
 | 篇号 | PR | Spec 文档 | 目标 Go 包 | 预估 | 对应 Epic 归档 | 状态 |
 |:---:|:---:|---|---|:---:|---|:---:|
 | 01 | `SA-01` | [L0/spec_01_config_obs_error_lifecycle.md](./L0/spec_01_config_obs_error_lifecycle.md) | `internal/infra/{config,obs,lifecycle}`, `internal/core/apperror` | 1.5d | [_epic/L1/spec_01](./_epic/L1/spec_01_core_tenant_crypto_egress.md) / [_epic/L6/spec_14](./_epic/L6/spec_14_server_bootstrap_lifecycle_docker_delivery.md) | `已实施` |
-| 02 | `SA-02` | [L0/spec_02_db_pgx_tx_migration.md](./L0/spec_02_db_pgx_tx_migration.md) | `internal/infra/db` | 1.5d | [_epic/L1/spec_02](./_epic/L1/spec_02_storage_postgres_migrations.md) | `draft` |
+| 02 | `SA-02` | [L0/spec_02_db_pgx_tx_migration.md](./L0/spec_02_db_pgx_tx_migration.md) | `internal/infra/db` | 1.5d | [_epic/L1/spec_02](./_epic/L1/spec_02_storage_postgres_migrations.md) | `已实施` |
 | 03 | `SA-03` | [L0/spec_03_httpclient_resilience_egress.md](./L0/spec_03_httpclient_resilience_egress.md) | `internal/infra/httpclient`, `internal/core/egress` | 1.5d | [_epic/L1/spec_01](./_epic/L1/spec_01_core_tenant_crypto_egress.md) | `draft` |
 | 04 | `SA-04` | [L0/spec_04_tenant_crypto_bus_archguard.md](./L0/spec_04_tenant_crypto_bus_archguard.md) | `internal/core/{tenant,crypto,eventbus}`, `internal/infra/memcache`, `internal/arch_test.go` | 1.5d | [_epic/L1/spec_01](./_epic/L1/spec_01_core_tenant_crypto_egress.md) | `draft` |
 
