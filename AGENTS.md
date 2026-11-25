@@ -230,5 +230,5 @@ synapse-os/
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read [specs/002-sa02-db-pgx-tx-migration/plan.md](specs/002-sa02-db-pgx-tx-migration/plan.md)
+shell commands, and other important information, read [specs/003-sa03-httpclient-resilience-egress/plan.md](specs/003-sa03-httpclient-resilience-egress/plan.md)
 <!-- SPECKIT END -->

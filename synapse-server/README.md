@@ -13,6 +13,8 @@
 | `internal/infra/obs` | L0 | `github.com/prometheus/client_golang` | `request_id`/`company_id`/`user_id` 上下文透传与 `CopyMeta`、`SanitizeRequestID` 防日志注入、`ContextHandler -> RedactingHandler -> Text/JSON` 脱敏 `slog`（支持 `0640` 文件双写）与 `RedactDSN`、独立隔离 Prometheus Registry（携带 `application` 标签及 6 项 `superagent_*` 业务指标 + HTTP 耗时直方图） |
 | `internal/infra/lifecycle` | L0 | **仅 Go 标准库** | `BackgroundGroup`（协程生命周期托管、`panic recover` 记堆栈与回调、停机后拒绝新任务、超时列出卡住任务名）与 `ShutdownManager`（5 阶段升序 / 同阶段 LIFO 逆序停机、30s 默认总预算裁剪、`SIGINT`/`SIGTERM` 信号监听） |
 | `internal/infra/db` | L0 | `pgx/v5`、`goose/v3`、`prometheus`、`SA-01` | 调优 `pgxpool`（强制 `TimeZone=UTC` 与 `statement_timeout`、2s `Ping`、池指标）、`context` 透传 `TxManager`（嵌套 `SAVEPOINT` + panic 安全回滚）、非全局 `goose/v3` 嵌入迁移（禁 `-- +goose Up` `DROP TABLE` + 迁移锁）、PG 错误码映射、零参数泄漏慢查询 `QueryTracer`、PG 原生 `AdvisoryLock`（零 Redis）与单测隔离夹具 |
+| `internal/core/egress` | L0 | **仅 Go 标准库** + `internal/core/apperror` | 传输层抗 SSRF 与抗 DNS Rebinding `EgressGuard`（`Unmap()` 防 `::ffff:` 绕过、`DialContext` 一次解析直连字面量 IP + `net.Dialer.Control` 纵深防御、6 跳 `CheckRedirect` + 跨源剥离 `Authorization`/`Cookie`） |
+| `internal/infra/httpclient` | L0 | `sony/gobreaker/v2`、`prometheus`、`SA-01`、`egress` | 物理隔离双 Profile 出站 HTTP 客户端（`NewTrusted` 注入企业代理与自签 CA；`NewUntrustedEgress` 强制 `EgressGuard.DialContext` + `Proxy: nil` + `CheckRedirect` + 默认 `20 MiB` `io.LimitReader`）、SSE `Streaming: true`（`Timeout=0` + `IdleReadTimeout`）、指数退避+Full Jitter（`429 Retry-After`）、`(service, host)` 有界 LRU 熔断与脱敏观测 |
 
 ---
 
@@ -72,3 +74,9 @@ TEST_POSTGRES_DSN="postgres://synapse:synapse@127.0.0.1:15432/synapse?sslmode=di
 - **严禁直接对 `*pgxpool.Pool` 调用会话级 `pg_try_advisory_lock` / `pg_advisory_unlock`**（解锁若落到其他连接将导致锁永久泄漏）；
 - 所有会话级咨询锁统一通过 `db.Locker().TryWithLock(...)` 或 `db.Locker().Acquire(...)` + `lease.Release(ctx)` 执行，由 `internal/infra/db` 保证独占单条物理连接并在同连接上成对解锁归还；
 - 事务内互斥（随 `COMMIT`/`ROLLBACK` 自动释放）统一通过 `db.TryLockTx(txCtx, d.Querier(txCtx), namespace, key)` 执行。
+
+### 出站 HTTP 双 Profile 选用与降级职责铁律
+
+- **严禁业务包自建裸 `http.Client`**，全部出站 HTTP/HTTPS/SSE 请求必须经 `internal/infra/httpclient` 构造；
+- **外部用户输入 URL（`LinkReader`、用户 Webhook、外部自定义 HTTP/SSE MCP）一律使用 `httpclient.NewUntrustedEgress`**，严禁混用 `NewTrusted`；仅飞书/钉钉 API、LLM 端点、`models.dev`、Node.js 镜像源等可信上游使用 `httpclient.NewTrusted`；
+- **业务降级归业务调用方**：`internal/infra/httpclient` 只返回结构化 `*ClientError`（通过 `httpclient.KindOf(err)` 分类），严禁在 HTTP 客户端层内置切备用 Key、回落匿名抓取或返回过期缓存等业务降级策略。
