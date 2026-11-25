@@ -1,0 +1,118 @@
+# ==============================================================================
+# Synapse-OS .gitignore
+# ==============================================================================
+
+# --- OS & System ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- IDEs & Editors ---
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# --- Environment & Secrets ---
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.local.yaml
+*.local.yml
+*.local.json
+*.local.toml
+secrets/
+
+# --- Go (synapse-server) ---
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+*.pprof
+go.work
+go.work.sum
+synapse-server/bin/
+synapse-server/tmp/
+synapse-server/dist/
+
+# --- Frontend / Node.js (synapse-web) ---
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.pnp.*
+*.tsbuildinfo
+.eslintcache
+.vite/
+.turbo/
+.next/
+.nuxt/
+.output/
+.cache/
+synapse-web/dist/
+synapse-web/build/
+coverage/
+playwright-report/
+test-results/
+
+# --- Build, Packaging & Infra (synapse-build) ---
+bin/
+dist/
+build/
+out/
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+docker-compose.override.yml
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# --- Logs, Runtime Data & Temp ---
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+tmp/
+.tmp/
+*.pid
+*.seed
+*.pid.lock
+*.db
+*.sqlite
+*.sqlite3
+
+# --- AI Agent Local / Private Artifacts ---
+# Note: .agents/skills/ is intentionally tracked for team collaboration
+.claude/settings.local.json
+.agents/.cache/
+.agents/credentials*
+.agents/*.local.*
+.specify/
+
