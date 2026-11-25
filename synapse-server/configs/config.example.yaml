@@ -1,0 +1,142 @@
+# ==============================================================================
+# Synapse-OS (SuperAgent Go 商业私有化 V1) 完整配置模板
+# ==============================================================================
+# 配置优先级（高 -> 低）：CLI Flags (--listen/--ui-dir) > 环境变量 > 本 YAML > 内置默认值
+# 注意：启用严格字段校验 (KnownFields=true)，任何拼写错误或未知字段将立即拒绝启动。
+# 架构约束：最小商业交付仅依赖单 Go 二进制 + 单库 PostgreSQL 17，零外部缓存中间件。
+
+server:
+  listen: ":18080"                    # 可被 SYNAPSE_LISTEN / SERVER_PORT 覆盖
+  shutdown_timeout: 30s               # 可被 SYNAPSE_SHUTDOWN_TIMEOUT 覆盖（容器 stop_grace_period 须 >= 35s）
+  ui_dir: ""                          # 开发期指向本地静态目录热加载；生产留空使用内嵌 embed.FS
+  session_cookie_name: "SYNAPSE_SESSION"
+  session_cookie_secure: false        # 启用 HTTPS 反向代理时设为 true（可被 SYNAPSE_COOKIE_SECURE 覆盖）
+  session_ttl: 168h                   # 7 天持久化登录会话（PG17 user_session 表）
+  trust_proxy_headers: true           # 信任企业反向代理 X-Forwarded-Proto/Host（可被 SYNAPSE_TRUST_PROXY 覆盖）
+
+app:
+  base_url: ""                        # 例: https://synapse.corp.example（可被 SYNAPSE_BASE_URL 覆盖）
+
+storage:
+  auto_migrate: true                  # 启动前自动执行内嵌 goose SQL 向前迁移（可被 SYNAPSE_AUTO_MIGRATE 覆盖）
+  postgres:
+    dsn: "postgres://synapse:synapse@127.0.0.1:5432/synapse?sslmode=disable&TimeZone=UTC" # 可被 SYNAPSE_PG_DSN / DATABASE_URL 覆盖
+    max_conns: 16                     # 可被 SYNAPSE_PG_MAX_CONNS 覆盖
+    min_conns: 2
+    max_conn_lifetime: 30m
+    max_conn_idle_time: 5m
+    slow_query_threshold: 200ms
+
+secret:
+  key: ""                             # 推荐通过环境变量 SECRET_KEY / SUPERAGENT_SECRET_KEY 传入 32 字节标准 Base64 KEK
+  key_file: "./data/secret.key"       # key 为空时自动加载或 0600 生成（可被 SYNAPSE_SECRET_KEY_FILE 覆盖）
+
+network:
+  http_proxy: ""                      # 企业出站 HTTP 代理，例: http://proxy.corp.local:8080（可被 HTTP_PROXY 覆盖）
+  https_proxy: ""                     # 企业出站 HTTPS 代理（可被 HTTPS_PROXY 覆盖）
+  no_proxy: "localhost,127.0.0.1,postgres" # 不走代理白名单（运行时始终保底追加 127.0.0.1,localhost,::1）
+  ca_bundle_file: ""                  # 企业自签根证书 PEM，同时注入 Go TLS 与 CLI 子进程 NODE_EXTRA_CA_CERTS
+
+runtime:
+  node_dir: "./data/runtime/node"     # 私有 Node.js LTS 托管目录（可被 SYNAPSE_NODE_DIR 覆盖）
+  npm_registry: ""                    # 企业私有 npm 源或镜像，例: https://registry.npmmirror.com（可被 NPM_CONFIG_REGISTRY 覆盖）
+  node_dist_mirror: "https://nodejs.org/dist" # 可被 SYNAPSE_NODE_DIST_MIRROR 覆盖
+
+paths:                                # 设置 SYNAPSE_DATA_DIR 可统一重定位全部 7 个租户隔离数据目录
+  workspaces: "./data/workspaces"
+  tasks: "./data/tasks"
+  files: "./data/files"
+  attachments: "./data/attachments"
+  avatars: "./data/avatars"
+  branding: "./data/branding"
+  skills: "./data/skills"
+
+quota:                                # 每租户默认配额上限（0 = 不限；company 表字段优先）
+  max_users: 0
+  max_running_tasks: 0
+  monthly_tokens: 0
+
+agent:
+  default_model: ""
+  allowed_tools: "Read,Glob,Grep,LS,Bash"
+  skip_permissions: false
+  session_failure_limit: 10
+  claude:
+    command: "claude"
+    timeout_seconds: 600
+    warm_enabled: true
+    warm_idle_minutes: 10
+    warm_max: 20
+  codex:
+    command: "codex"
+    timeout_seconds: 600
+
+chat:
+  sse_timeout: 10m
+
+mcp:
+  enabled_in_chat: true
+  self_url: ""                        # 留空自动推导 http://127.0.0.1:<actualPort>/mcp
+
+files:
+  upload_max_mb: 50
+  max_mb: 200
+  auto_tag: true
+
+task:
+  allowed_tools: "Read,Glob,Grep,LS,Edit,Write,Bash"
+  skip_permissions: false
+  max_parallel: 50
+  scheduler_sweep: 30s
+  watchdog_enabled: true
+  watchdog_interval: 30s
+  watchdog_stall: 120s
+
+automation:
+  scheduler_enabled: true
+  scheduler_interval: 30s
+
+superagent:
+  enabled: true
+  tick_interval: 3s
+  quiet_window: 10s
+  max_wait: 60s
+  team_limit: 6
+  timezone: "Asia/Shanghai"
+
+memory:
+  enabled: true
+  interval: 5m
+  min_messages: 10
+  settle_minutes: 2
+  idle_minutes: 30
+  agents_per_tick: 3
+  carry_chars: 60000
+  timezone: "Asia/Shanghai"
+
+provider:
+  checker_enabled: true
+  local_interval: 3s
+  latest_interval: 1h
+  infer_interval: 1h
+  credential_interval: 10m
+
+cost:
+  catalog_url: "https://models.dev/api.json"
+  catalog_check_interval: 10m
+
+inbox:
+  retention_days: 30
+
+agent_log:
+  retention_days: 30
+  max_per_agent: 5000
+
+observability:
+  log_level: "info"                   # debug | info | warn | error（可被 SYNAPSE_LOG_LEVEL 覆盖）
+  log_format: "text"                  # text | json（可被 SYNAPSE_LOG_FORMAT 覆盖）
+  log_file: ""                        # 非空时以 0640 权限双写至指定文件（可被 SYNAPSE_LOG_FILE 覆盖）
+  prometheus_token: ""                # 可选：Prometheus 独立抓取 Bearer Token（可被 SYNAPSE_PROMETHEUS_TOKEN 覆盖）
+
+platform:
+  super_admin_token: ""               # 预留商业平台运维控制面 Token（可被 SYNAPSE_SUPER_ADMIN_TOKEN 覆盖）
