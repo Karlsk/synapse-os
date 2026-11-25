@@ -634,13 +634,13 @@ var layerOfTopPkg = map[string]int{
 //   - internal/core/* 严禁 import internal/infra/{config,db,httpclient,lifecycle,memcache}（仅 internal/core/tenant 允许单向引用 internal/infra/obs 透传日志元信息）；
 //   - internal/core/* 严禁 import gin、pgx、goose、database/sql、os/exec；
 //   - internal/infra/* 严禁 import L1–L5 包。
-// Rule 3 (同层零循环互引):
-//   - 绝对禁止 internal/agent <-> internal/task 双向任意互引；
-//   - 禁止 internal/event <-> internal/orchestrator 互引；
-//   - 禁止 internal/storage <-> internal/runtime 互引；
-//   - 禁止 internal/files <-> internal/skills 互引。
+// Rule 3 (同层平行模块全面禁互引):
+//   - 凡 srcLayer >= 1 且 targetLayer == srcLayer 且 srcTopPkg != targetTopPkg 的跨模块 import 一律禁止！
+//   - 全面覆盖：L1 (storage <-> runtime)、L2 (platform / files / project / skills 之间)、
+//     L3 (agent / task / cost / docs 之间)、L4 (event <-> orchestrator)、L5 (web <-> ui)；
+//   - 同层协作必须通过 L0 internal/core/{spi,store,eventbus} 倒置解耦，并在 L6 cmd/synapse-server/wire.go 装配。
 // Rule 4 (数据库驱动隔离): 仅 internal/infra/db、internal/storage/postgres、cmd/synapse-server 允许 import github.com/jackc/pgx/v5 或 github.com/pressly/goose/v3。
-// Rule 5 (子进程隔离): 仅 internal/runtime/launcher 与 internal/platform/provider 允许 import os/exec。
+// Rule 5 (子进程隔离): 仅 internal/runtime/launcher 允许 import os/exec（业务层与 platform/provider/installer 均经 spi.ProcessLauncher 启动子进程）。
 // Rule 6 (零 Redis 红线): 解析 go.mod 与全仓 import，严禁出现任何 Redis 驱动包（如 github.com/redis/go-redis、github.com/gomodule/redigo 等）。
 ```
 

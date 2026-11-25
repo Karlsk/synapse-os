@@ -1,28 +1,20 @@
 <!--
 Sync Impact Report
 ==================
-- Version change: (template) -> 1.0.0
-- Ratification rationale: Initial formal ratification of the Synapse-OS
-  (SuperAgent Go Commercial Private-Deployment V1) Constitution derived from
-  AGENTS.md hard engineering rules.
-- Modified / Defined Principles:
-  - [PRINCIPLE_1_NAME] -> I. Enterprise-First & V1 Commercial Scope (NON-NEGOTIABLE)
-  - [PRINCIPLE_2_NAME] -> II. Strict L0-L6 Unidirectional Layering & Explicit Wiring
-  - [PRINCIPLE_3_NAME] -> III. Fail-Closed Multi-Tenant Isolation & Envelope Encryption
-  - [PRINCIPLE_4_NAME] -> IV. Infrastructure & Egress Isolation
-  - [PRINCIPLE_5_NAME] -> V. PostgreSQL 17 Schema Discipline & Forward-Only Migrations
-  - Added -> VI. Resilience, Bounded Concurrency & Graceful Shutdown
-  - Added -> VII. API Contract Fidelity, Go Style & Verification Discipline
-- Added Sections:
-  - Technology Stack & Operational Constraints
-  - Development Workflow & Quality Gates
-  - Governance
-- Removed Sections: None
-- Template Propagation Status:
-  - .specify/templates/plan-template.md: updated (added Synapse-OS Constitution Check gates & Go workspace layout)
-  - .specify/templates/spec-template.md: verified aligned (technology-agnostic user-story & requirements format preserved)
-  - .specify/templates/tasks-template.md: updated (aligned Go path conventions, mandatory test/race/arch/guard verification gates)
-  - AGENTS.md: verified aligned (canonical runtime engineering rulebook)
+- Version change: 1.0.0 -> 1.0.1
+- Amendment rationale: Clarified and tightened Principle II from listing only
+  agent <-> task to universally forbidding ALL same-layer parallel module
+  imports across L1-L5 (enforcing inversion via L0 core/spi, core/store, or
+  core/eventbus), aligned with the canonical 7-layer architecture and
+  spec_04 arch_test.go Rule 3.
+- Modified Principles:
+  - II. Strict L0-L6 Unidirectional Layering & Explicit Wiring (tightened same-layer isolation to all L1-L5 parallel modules)
+- Added / Removed Sections: None
+- Template & Doc Propagation Status:
+  - .specify/templates/plan-template.md: updated (generalized Constitution Check gate #2 to all L1-L5 parallel modules, bumped ref to v1.0.1)
+  - .agents/skills/spec-dev/SKILL.md: updated (aligned soft gate #7 & /speckit-plan layering rule)
+  - AGENTS.md: updated (aligned Section 3.1 to all L1-L5 parallel modules)
+  - docs/SuperAgent-Go/DDD/L0/spec_04_tenant_crypto_bus_archguard.md: updated (upgraded arch_test.go Rule 3 to universal same-layer guard and tightened Rule 5 os/exec scope)
 - Follow-up TODOs: None
 -->
 
@@ -51,11 +43,18 @@ company digital assets rather than single-user personal utilities.
 ### II. Strict L0–L6 Unidirectional Layering & Explicit Wiring
 All backend packages under `synapse-server/internal/` MUST strictly follow
 unidirectional downward dependencies:
-`L6 (cmd) -> L5 (web/ui) -> L4 (orchestrator/event) -> L3 (agent/task/cost/docs) -> L2 (platform/files/project/skills) -> L1 (core contracts / storage / runtime) -> L0 (infra / core primitives)`.
+`L6 (cmd) -> L5 (web/ui) -> L4 (orchestrator/event) -> L3 (agent/task/cost/docs) -> L2 (platform/files/project/skills) -> L1 (storage/runtime) -> L0 (core contracts & primitives / infra)`.
 
-- Lower layers MUST NOT import higher layers. Sibling packages `internal/agent`
-  and `internal/task` MUST NOT import each other; shared logic MUST sink to L2
-  or decouple through L1 `internal/core/spi`.
+- Lower layers MUST NOT import higher layers (`targetLayer > srcLayer` is
+  FORBIDDEN).
+- Same-layer parallel modules across L1–L5 MUST NOT import each other
+  (`srcLayer >= 1 && targetLayer == srcLayer && srcTopPkg != targetTopPkg` is
+  FORBIDDEN—covering L1 `storage`↔`runtime`, L2 `platform`/`files`/`project`/
+  `skills`, L3 `agent`/`task`/`cost`/`docs`, L4 `event`↔`orchestrator`, and L5
+  `web`↔`ui`). Cross-module collaboration within the same layer MUST invert
+  through L0 `internal/core/spi`, `internal/core/store`, or
+  `internal/core/eventbus`, or sink shared logic to a lower layer, with wiring
+  assembled at L6 `cmd/synapse-server/wire.go`.
 - Architectural boundaries MUST be mechanically enforced on every test run via
   AST analysis in `internal/arch_test.go`.
 - Dependency injection MUST be explicit and reflection-free inside
@@ -249,4 +248,4 @@ rationale and rejected simpler alternatives.
   day-to-day operational rulebook mirroring this constitution, and
   `docs/SuperAgent-Go/DDD/` for PR-level specifications.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-25 | **Last Amended**: 2026-11-25
+**Version**: 1.0.1 | **Ratified**: 2026-11-25 | **Last Amended**: 2026-11-25

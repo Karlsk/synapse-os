@@ -73,9 +73,10 @@ curl -fsS http://127.0.0.1:18080/api/v1/meta
 
 ## 3. 关键架构硬规则
 
-1. **L0–L6 严格单向分层（AST 强制拦截）**：
-   `L6 (cmd) → L5 (web/ui) → L4 (orchestrator/event) → L3 (agent/task/cost/docs) → L2 (platform/files/project/skills) → L1 (core contracts / storage / runtime) → L0 (infra / core primitives)`
-   - **禁止低层依赖高层**；**严禁 `internal/agent` 与 `internal/task` 同层互引**（共享依赖下沉至 L2 或经 L1 `core/spi` 解耦）。
+1. **L0–L6 严格单向分层与同层平行模块禁互引（AST 强制拦截）**：
+   `L6 (cmd) → L5 (web/ui) → L4 (orchestrator/event) → L3 (agent/task/cost/docs) → L2 (platform/files/project/skills) → L1 (storage/runtime) → L0 (core contracts & primitives / infra)`
+   - **禁止低层依赖高层**（`targetLayer > srcLayer` 一律禁止）；
+   - **禁止 L1–L5 任意同层平行模块间相互依赖**（`srcLayer >= 1 && targetLayer == srcLayer && srcTopPkg != targetTopPkg` 一律禁止，包括 L1 `storage`↔`runtime`、L2 `platform`/`files`/`project`/`skills` 之间、L3 `agent`/`task`/`cost`/`docs` 之间、L4 `event`↔`orchestrator`、L5 `web`↔`ui`）；同层协作必须通过 L0 `internal/core/spi`、`internal/core/store` 或 `internal/core/eventbus` 倒置解耦，并在 L6 `cmd/synapse-server/wire.go` 装配。
    - 由 `internal/arch_test.go` 在 `go test ./...` 中做静态 AST 校验，任何违规导入直接失败。
 2. **显式零反射装配**：全仓依赖仅在 `cmd/synapse-server/wire.go` 手动显式注入，严禁反射黑盒 DI 容器。
 3. **Fail-Closed 多租户强隔离**：

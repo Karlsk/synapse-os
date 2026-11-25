@@ -40,7 +40,7 @@ $ARGUMENTS
   4. Spec 与 `AGENTS.md` / `.specify/memory/constitution.md` 冲突、Spec 内部自相矛盾、或 Spec 与仓库代码现状冲突；
   5. 需要修改前序 PR（`SA-01` ~ `SA-<N-1>`）已交付的导出契约（尤其是 `internal/core/{apperror,egress,tenant,crypto,eventbus,model,store,spi,api}` 与 `internal/infra/*`）；
   6. Spec 要求的第三方依赖不在 `synapse-server/go.mod` 中且不在 `AGENTS.md §2.1` 锁定技术栈清单内（如意外要求引入 Redis / ClickHouse / GORM / 反射 DI 一律停下拦截）；
-  7. 需要偏离 L0–L6 单向分层、V1 商业裁剪边界（如恢复公网自助注册 `POST /api/v1/orgs`、24 性格预设、4 套已裁剪 SaaS 连接器）或 `cmd/synapse-server/wire.go` 零反射显式装配原则。
+  7. 需要偏离 L0–L6 单向分层或同层平行模块禁互引规则（L1–L5 任意不同顶层模块间禁止直接 `import`，必须经 L0 `core/spi`/`core/store`/`core/eventbus` 倒置解耦）、V1 商业裁剪边界（如恢复公网自助注册 `POST /api/v1/orgs`、24 性格预设、4 套已裁剪 SaaS 连接器）或 `cmd/synapse-server/wire.go` 零反射显式装配原则。
 - **反作弊**：严禁删断言、滥用 `t.Skip`（仅允许 `db.NewTestSchemaDB` 在未设 `TEST_POSTGRES_DSN` 时按规范跳过）、调低覆盖率门槛或绕过 `-race` 让测试变绿。实现错修实现；怀疑 Spec/测试有误时停下报告。未全绿绝不宣称完成。
 - **Git 绝对红线（严禁自动操作）**：全程**严禁自动执行 `git add`、`git commit`、`git push`**，亦禁止调用 `/speckit-git-commit` 自动提交钩子；任何暂存、提交、推送操作都必须等待用户显式下达指令。本 Skill 仅在第 7 步验收报告末尾给出建议 commit message。
 - **单篇边界**：每次仅处理**一篇** Spec；连续多篇时必须逐篇通过各自的验收门再进入下一篇。
@@ -116,7 +116,7 @@ SA-NN（spec NN）需求：<Spec 标题>——<一句话产品与工程定位>
 
 - **固定技术栈句**（照抄，按本篇层级裁剪无关库说明）：
   `技术栈：Go 1.26.1（synapse-server/，module github.com/Karlsk/synapse-os，Go Modules，CGO_ENABLED=0 单静态二进制）+ Gin + PostgreSQL 17（jackc/pgx/v5 pgxpool + pressly/goose/v3 //go:embed 向前迁移，严禁 DROP TABLE 与重 ORM）+ gopkg.in/yaml.v3（KnownFields(true)）+ sony/gobreaker/v2 + robfig/cron/v3 + 标准库 log/slog、crypto/aes、embed.FS + prometheus/client_golang。零 Redis、零 ClickHouse、零反射 DI；短时缓存/限流走 internal/infra/memcache，跨实例互斥走 PG AdvisoryLock。数据库零物理外键、非全局表 company_id VARCHAR(64) NOT NULL 复合主键首列、TIMESTAMPTZ UTC、NUMERIC(16,6) 定点计费、JSONB、ON CONFLICT 幂等写。`
-- **模块落位句**：从 Spec `§2 本篇交付物表` 逐行生成「交付物 → `synapse-server/...` 落位路径」映射，并显式注明所属层级（L0–L6）与禁止导入红线（如业务层禁 `pgx`/`goose`/`os/exec`、`internal/agent` ↔ `internal/task` 禁互引、出站 HTTP 必走 `httpclient` 双 Profile、Web 层零业务逻辑）。
+- **模块落位句**：从 Spec `§2 本篇交付物表` 逐行生成「交付物 → `synapse-server/...` 落位路径」映射，并显式注明所属层级（L0–L6）与禁止导入红线（如业务层禁 `pgx`/`goose`/`os/exec`、L1–L5 全部同层平行模块禁直接互引须经 L0 `core/spi`/`core/store`/`core/eventbus` 倒置解耦、出站 HTTP 必走 `httpclient` 双 Profile、Web 层零业务逻辑）。
 - **冻结契约句**：
   `冻结契约逐字对齐 <Spec 路径> §4（导出类型/函数签名、路由路径与鉴权、错误码与中文/协议文案、SQL 形态、JSON camelCase 字段），引用条目使用 Spec 编号不自造同义词。HTTP 统一信封与 6 类协议例外（登录裸 JSON、登出空体、SSE、二进制/沙箱文本预览、OAuth 302、POST /mcp 统一 isError:true）严格保真。`
 - **测试策略句**：

@@ -40,10 +40,10 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-Verify compliance with `.specify/memory/constitution.md` (v1.0.0) and `AGENTS.md`:
+Verify compliance with `.specify/memory/constitution.md` (v1.0.1) and `AGENTS.md`:
 
 - [ ] **V1 Scope & Zero Redundant Infra**: Single Go binary + PostgreSQL 17 only (zero Redis, zero ClickHouse, no public self-registration, no prohibited ORM/DI dependencies).
-- [ ] **L0–L6 Layering & Explicit Wiring**: Strictly downward imports only; no `internal/agent` ↔ `internal/task` mutual imports; zero business logic in `internal/web`; dependencies wired explicitly in `cmd/synapse-server/wire.go`.
+- [ ] **L0–L6 Layering & Explicit Wiring**: Strictly downward imports only; no same-layer parallel module imports across L1–L5 (`storage`/`runtime`, `platform`/`files`/`project`/`skills`, `agent`/`task`/`cost`/`docs`, `event`/`orchestrator`, `web`/`ui` MUST decouple via L0 `core/spi`, `core/store`, or `core/eventbus`); zero business logic in `internal/web`; dependencies wired explicitly in `cmd/synapse-server/wire.go`.
 - [ ] **Multi-Tenant Fail-Closed & Crypto**: Tenant ops enforce `tenant.Require(ctx)`; async goroutines use `tenant.Detach(ctx)`; new tenant tables lead PK with `company_id VARCHAR(64) NOT NULL`; secrets use `SecretCipher` (no plaintext/env fallback).
 - [ ] **Infrastructure Isolation**: No direct `pgx`/`goose` outside `infra/db`/`storage/postgres`/`cmd`; no direct `os/exec.Command` (use `spi.ProcessLauncher`); no raw `http.Client` (use `TrustedClient` / `UntrustedEgressClient`).
 - [ ] **PG17 Schema & Migrations**: Forward-only `goose` migrations (no `DROP TABLE`), zero physical FKs, UTC `TIMESTAMPTZ`, `NUMERIC(16,6)` fixed-point currency, `JSONB`, idempotent `ON CONFLICT`.
