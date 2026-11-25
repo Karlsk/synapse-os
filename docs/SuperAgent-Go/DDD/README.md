@@ -9,9 +9,9 @@
 ## 1. 工程红线与 V1 商业私有化锁定边界（全部 42 篇共同遵守）
 
 1. **目标工程**：`synapse-server`（`module github.com/Karlsk/synapse-os`，`go 1.26.1`），核心技术栈：**Go 1.26 + Gin + PostgreSQL 17 (`pgx/v5` + `goose`) + 标准库 `crypto/aes` / `slog` + `sony/gobreaker/v2` + `robfig/cron/v3` + `embed.FS`**。
-2. **严格单向分层防循环**：
-   `L6(cmd) → L5(web/ui) → L4(orchestrator/event) → L3(agent/task/cost/docs) → L2(platform/files/project/skills) → L1(core contracts / storage / runtime) → L0(infra / core primitives)`
-   - 同层禁止循环依赖（`internal/agent/*` 与 `internal/task/*` 绝不可互引）；
+2. **严格单向分层与同层平行模块禁互引**：
+   `L6(cmd) → L5(web/ui) → L4(orchestrator/event) → L3(agent/task/cost/docs) → L2(platform/files/project/skills) → L1(storage/runtime) → L0(core contracts & primitives / infra)`
+   - 禁止低层依赖高层（`targetLayer > srcLayer`），并**禁止 L1–L5 全部同层平行模块间直接相互依赖**（`srcLayer >= 1 && targetLayer == srcLayer && srcTopPkg != targetTopPkg`，包括 L1 `storage`↔`runtime`、L2 `platform`/`files`/`project`/`skills`、L3 `agent`/`task`/`cost`/`docs`、L4 `event`↔`orchestrator`、L5 `web`↔`ui`），同层协作须经 L0 `internal/core/{spi,store,eventbus}` 倒置解耦并在 L6 `wire.go` 装配；
    - 由 `L0/spec_04` 的 `internal/arch_test.go` 在 CI 阶段做 Go AST 静态强制拦截。
 3. **零外部冗余中间件（零 Redis、零 ClickHouse）**：
    - 原版 Java SuperAgent **零 Redis**，V1 商业私有化部署最小依赖为 **单 Go 二进制 + 单库 PostgreSQL 17**；
@@ -133,6 +133,8 @@ flowchart TD
 | 04 | `SA-04` | [L0/spec_04_tenant_crypto_bus_archguard.md](./L0/spec_04_tenant_crypto_bus_archguard.md) | `internal/core/{tenant,crypto,eventbus}`, `internal/infra/memcache`, `internal/arch_test.go` | 1.5d | [_epic/L1/spec_01](./_epic/L1/spec_01_core_tenant_crypto_egress.md) | `draft` |
 
 ### L1 — 核心契约、PG17 存储与执行运行时层（10 篇，合计 16.5 人天）
+
+> **层级说明**：`SA-05` / `SA-06` 交付的 `internal/core/{model,store,spi}` 在代码架构与 `internal/arch_test.go` 中归属 **L0**（`layerOfTopPkg["core"] = 0`），仅因实施波次依赖 `SA-01`/`SA-04` 而在本看板按波次归入 `L1/` 目录；保留原路径以避免下游 30+ 篇 Spec 相对链接断链。
 
 | 篇号 | PR | Spec 文档 | 目标 Go 包 | 预估 | 对应 Epic 归档 | 状态 |
 |:---:|:---:|---|---|:---:|---|:---:|
