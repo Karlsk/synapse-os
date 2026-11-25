@@ -109,10 +109,9 @@ tmp/
 *.sqlite3
 
 # --- AI Agent Local / Private Artifacts ---
-# Note: .agents/skills/ is intentionally tracked for team collaboration
+# Note: .agents/skills/ and .specify/ are intentionally tracked for team collaboration
 .claude/settings.local.json
 .agents/.cache/
 .agents/credentials*
 .agents/*.local.*
-.specify/
 
