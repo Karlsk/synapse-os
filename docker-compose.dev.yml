@@ -1,0 +1,27 @@
+# Local development PostgreSQL 17 stack for synapse-os (zero Redis / zero ClickHouse).
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   export TEST_POSTGRES_DSN="postgres://synapse:synapse@127.0.0.1:5432/synapse?sslmode=disable&TimeZone=UTC"
+#   docker compose -f docker-compose.dev.yml down -v
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: synapse-dev-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapse}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      TZ: UTC
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - synapse-dev-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-synapse} -d ${POSTGRES_DB:-synapse}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  synapse-dev-pgdata:

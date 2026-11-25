@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-test:
+    name: Go Build, Race Tests & PG17 Integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: synapse-server
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse_ci_password
+          POSTGRES_DB: synapse_test
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U synapse -d synapse_test"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: synapse-server/go.mod
+          cache-dependency-path: synapse-server/go.sum
+
+      - name: Check gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "Unformatted Go files:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: Check banned dependencies (zero Redis / ClickHouse / GORM)
+        run: |
+          if grep -iE '(go-redis|redigo|clickhouse|gorm\.io)' go.mod; then
+            echo "Forbidden dependency detected in go.mod"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: |
+          if [ -n "$(go list ./... 2>/dev/null)" ]; then
+            go vet ./...
+          else
+            go vet -tags=deps_lock ./tools
+          fi
+
+      - name: Run go build
+        run: |
+          if [ -n "$(go list ./... 2>/dev/null)" ]; then
+            go build ./...
+          else
+            go build -tags=deps_lock ./tools
+          fi
+
+      - name: Run go test -race (including PG17 integration tests)
+        env:
+          TEST_POSTGRES_DSN: postgres://synapse:synapse_ci_password@127.0.0.1:5432/synapse_test?sslmode=disable&TimeZone=UTC
+        run: |
+          if [ -n "$(go list ./... 2>/dev/null)" ]; then
+            go test -race -cover ./...
+          else
+            echo "No production Go packages yet; skipping go test until SA-01"
+          fi
+
+      - name: Verify static release build (when cmd entrypoint exists)
+        run: |
+          if ls cmd/synapse-server/*.go >/dev/null 2>&1; then
+            CGO_ENABLED=0 go build -trimpath -o bin/synapse-server ./cmd/synapse-server
+          else
+            echo "Skipping binary build: cmd/synapse-server has no Go source files yet"
+          fi
