@@ -91,11 +91,13 @@ func (g *BackgroundGroup) Go(name string, fn func(ctx context.Context) error) {
 		g.logger.Warn("background task rejected after group stopped", "task", name)
 		return
 	}
+	// Increment active/WaitGroup while holding g.mu so Stop() cannot observe
+	// g.stopped=true and enter wg.Wait() concurrently with wg.Add(1).
 	g.running[name]++
-	g.mu.Unlock()
-
 	g.active.Add(1)
 	g.wg.Add(1)
+	g.mu.Unlock()
+
 	go func() {
 		defer g.wg.Done()
 		defer g.active.Add(-1)

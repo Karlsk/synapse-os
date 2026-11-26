@@ -145,3 +145,64 @@ func TestShardedCacheTTLEvictionDeleteFuncAndSingleflight(t *testing.T) {
 		t.Fatalf("GetOrLoad(canceled) = %v, want context.Canceled", err)
 	}
 }
+
+func TestShardedCacheGetOrLoadCallerCancelDoesNotPoisonPeer(t *testing.T) {
+	t.Parallel()
+
+	c := NewShardedCache[string, string](CacheOptions{Shards: 4, MaxEntries: 16})
+
+	loaderStarted := make(chan struct{})
+	releaseLoader := make(chan struct{})
+	var calls atomic.Int32
+
+	loader := func(ctx context.Context) (string, error) {
+		calls.Add(1)
+		close(loaderStarted)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-releaseLoader:
+			return "shared-value", nil
+		}
+	}
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	errChA := make(chan error, 1)
+	go func() {
+		_, err := c.GetOrLoad(ctxA, "oauth:acme:user1", time.Minute, loader)
+		errChA <- err
+	}()
+
+	<-loaderStarted
+
+	type resB struct {
+		val string
+		err error
+	}
+	resChB := make(chan resB, 1)
+	go func() {
+		v, err := c.GetOrLoad(context.Background(), "oauth:acme:user1", time.Minute, loader)
+		resChB <- resB{val: v, err: err}
+	}()
+
+	// Give caller B a moment to attach to the same singleflight call, then cancel A.
+	time.Sleep(15 * time.Millisecond)
+	cancelA()
+
+	if err := <-errChA; !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller A err = %v, want context.Canceled", err)
+	}
+
+	close(releaseLoader)
+
+	gotB := <-resChB
+	if gotB.err != nil || gotB.val != "shared-value" {
+		t.Fatalf("caller B = (%q, %v), want (shared-value, nil)", gotB.val, gotB.err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("loader calls = %d, want 1", calls.Load())
+	}
+	if v, ok := c.Get("oauth:acme:user1"); !ok || v != "shared-value" {
+		t.Fatalf("cached value = (%q, %v), want (shared-value, true)", v, ok)
+	}
+}

@@ -192,13 +192,20 @@ func (c *ShardedCache[K, V]) GetOrLoad(
 	if loader == nil {
 		return zero, fmt.Errorf("memcache: nil loader")
 	}
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
 
 	sfKey := singleflightKey(key)
+	// Detach single-caller cancellation so one caller aborting mid-flight does not
+	// fail sibling callers coalesced onto the same singleflight execution, while
+	// preserving context values (tenant/request metadata).
+	loadCtx := context.WithoutCancel(ctx)
 	ch := c.sf.DoChan(sfKey, func() (any, error) {
 		if v, ok := c.Get(key); ok {
 			return v, nil
 		}
-		val, err := loader(ctx)
+		val, err := loader(loadCtx)
 		if err != nil {
 			return zero, err
 		}

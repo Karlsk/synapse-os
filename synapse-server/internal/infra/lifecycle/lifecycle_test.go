@@ -233,3 +233,32 @@ func TestNotifySignalContextCancelsCleanly(t *testing.T) {
 	}
 	stop()
 }
+
+func TestBackgroundGroupConcurrentGoAndStopNoWaitGroupRace(t *testing.T) {
+	t.Parallel()
+
+	for range 50 {
+		g := NewBackgroundGroup(context.Background())
+		var callers sync.WaitGroup
+		for range 8 {
+			callers.Add(1)
+			go func() {
+				defer callers.Done()
+				g.Go("racing-worker", func(ctx context.Context) error {
+					<-ctx.Done()
+					return ctx.Err()
+				})
+			}()
+		}
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := g.Stop(stopCtx)
+		cancel()
+		callers.Wait()
+		if err != nil {
+			t.Fatalf("Stop() returned unexpected error: %v", err)
+		}
+		if g.Active() != 0 {
+			t.Fatalf("Active() after Stop = %d, want 0", g.Active())
+		}
+	}
+}
