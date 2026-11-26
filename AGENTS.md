@@ -230,5 +230,5 @@ synapse-os/
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read [specs/003-sa03-httpclient-resilience-egress/plan.md](specs/003-sa03-httpclient-resilience-egress/plan.md)
+shell commands, and other important information, read [specs/004-sa04-tenant-crypto-bus-archguard/plan.md](specs/004-sa04-tenant-crypto-bus-archguard/plan.md)
 <!-- SPECKIT END -->
