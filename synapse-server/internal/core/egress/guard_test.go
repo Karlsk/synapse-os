@@ -362,4 +362,34 @@ func TestDialContextControlAndAllowlistConnect(t *testing.T) {
 		t.Fatalf("host-allowlisted DialContext failed: %v", err)
 	}
 	_ = conn2.Close()
+
+	// Multi-IP budget splitting: unreachable first IP must not exhaust the full budget before falling back to 127.0.0.1.
+	gMulti := MustNew(Options{
+		Allowed:      []string{"192.0.2.0/24", "127.0.0.0/8"},
+		AllowedPorts: []int{portNum},
+		DialTimeout:  240 * time.Millisecond,
+		Resolver: mockResolver{fn: func(_ context.Context, _, _ string) ([]netip.Addr, error) {
+			return []netip.Addr{
+				netip.MustParseAddr("192.0.2.1"), // TEST-NET-1 blackhole/unreachable
+				netip.MustParseAddr("127.0.0.1"), // reachable fallback
+			}, nil
+		}},
+	})
+	start := time.Now()
+	conn3, err := gMulti.DialContext(ctx, "tcp", net.JoinHostPort("multi-ip.example", portStr))
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("multi-IP fallback DialContext failed after %v: %v", elapsed, err)
+	}
+	_ = conn3.Close()
+	if elapsed > 350*time.Millisecond {
+		t.Fatalf("multi-IP DialContext took %v, expected <= ~240ms budget", elapsed)
+	}
+
+	// Pre-canceled context returns context.Canceled immediately.
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := gCIDR.DialContext(canceledCtx, "tcp", net.JoinHostPort("allowed-cidr.example", portStr)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled DialContext error = %v, want context.Canceled", err)
+	}
 }

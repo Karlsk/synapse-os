@@ -131,10 +131,11 @@ func TestRetryPolicy429503IdempotencyAndNoRetryCases(t *testing.T) {
 			t.Fatalf("plain POST status=%d attempts=%d, want 503 and 1", resp1.StatusCode, postAttempts.Load())
 		}
 
-		// Idempotent POST with GetBody: retries and succeeds
+		// Idempotent POST with GetBody: retries, succeeds, and does not mutate caller's req.Body pointer
 		postAttempts.Store(0)
 		ctx := WithIdempotent(context.Background())
 		req2, _ := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/query", bytes.NewReader([]byte("payload")))
+		origBody := req2.Body
 		resp2, err := client.Do(req2)
 		if err != nil {
 			t.Fatalf("idempotent POST error = %v", err)
@@ -142,6 +143,9 @@ func TestRetryPolicy429503IdempotencyAndNoRetryCases(t *testing.T) {
 		_ = resp2.Body.Close()
 		if resp2.StatusCode != http.StatusOK || postAttempts.Load() != 3 {
 			t.Fatalf("idempotent POST status=%d attempts=%d, want 200 and 3", resp2.StatusCode, postAttempts.Load())
+		}
+		if req2.Body != origBody {
+			t.Fatalf("retryRT mutated caller's req.Body pointer")
 		}
 	})
 

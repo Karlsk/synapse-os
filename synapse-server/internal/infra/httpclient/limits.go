@@ -103,6 +103,7 @@ type idleTimeoutReadCloser struct {
 	timeout   time.Duration
 	service   string
 	host      string
+	timer     *time.Timer
 	timedOut  atomic.Bool
 	closeOnce sync.Once
 	closeErr  error
@@ -126,12 +127,19 @@ func (r *idleTimeoutReadCloser) Read(p []byte) (int, error) {
 			Err:     context.DeadlineExceeded,
 		}
 	}
-	timer := time.AfterFunc(r.timeout, func() {
-		r.timedOut.Store(true)
-		_ = r.Close()
-	})
+	if r.timer == nil {
+		r.timer = time.AfterFunc(r.timeout, func() {
+			r.timedOut.Store(true)
+			_ = r.Close()
+		})
+	} else {
+		r.timer.Reset(r.timeout)
+	}
 	n, err := r.orig.Read(p)
-	timer.Stop()
+	if !r.timer.Stop() {
+		// Callback already fired; do not reuse this timer instance.
+		r.timer = nil
+	}
 	if err != nil && r.timedOut.Load() {
 		return n, &ClientError{
 			Kind:    KindTimeout,

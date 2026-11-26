@@ -171,4 +171,36 @@ func TestCircuitBreakerLRUEvictionAndSharedRegisterer(t *testing.T) {
 	if _, exists := brt.entries["lru:h1.example"]; exists {
 		t.Fatalf("expected oldest host h1.example to be evicted")
 	}
+
+	// Verify evicted host was also deleted from Prometheus GaugeVec (prevents unbounded cardinality leak).
+	families, err := metrics.Gatherer().Gather()
+	if err != nil {
+		t.Fatalf("Gather(): %v", err)
+	}
+	seenHosts := make(map[string]bool)
+	for _, mf := range families {
+		if mf.GetName() != "synapse_http_client_breaker_state" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			var svc, host string
+			for _, lp := range m.GetLabel() {
+				switch lp.GetName() {
+				case "service":
+					svc = lp.GetValue()
+				case "host":
+					host = lp.GetValue()
+				}
+			}
+			if svc == "lru" {
+				seenHosts[host] = true
+			}
+		}
+	}
+	if seenHosts["h1.example"] {
+		t.Fatalf("evicted host h1.example leaked in synapse_http_client_breaker_state: %v", seenHosts)
+	}
+	if !seenHosts["h2.example"] || !seenHosts["h3.example"] {
+		t.Fatalf("expected active hosts h2/h3 in breaker gauge, got: %v", seenHosts)
+	}
 }

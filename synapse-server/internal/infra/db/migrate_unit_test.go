@@ -60,6 +60,45 @@ DROP TABLE IF EXISTS safe_table;
 		}
 	})
 
+	t.Run("detects DROP TABLE with mixed block and line comment syntax", func(t *testing.T) {
+		t.Parallel()
+		cases := []struct {
+			name string
+			sql  string
+		}{
+			{
+				name: "block comment containing double-dash before DROP TABLE",
+				sql:  "-- +goose Up\n/* note -- */ DROP TABLE leak_a;\n-- +goose Down\nSELECT 1;\n",
+			},
+			{
+				name: "line comment containing block-open before DROP TABLE",
+				sql:  "-- +goose Up\n-- /* misleading comment\nDROP TABLE leak_b;\n-- */\n-- +goose Down\nSELECT 1;\n",
+			},
+			{
+				name: "single-quoted literal containing /* before DROP TABLE",
+				sql:  "-- +goose Up\nCREATE TABLE f (mime TEXT DEFAULT 'application/*');\nDROP TABLE leak_c;\n-- +goose Down\nSELECT 1;\n",
+			},
+		}
+		for _, tc := range cases {
+			memFS := fstest.MapFS{
+				"migrations/00001_tricky.sql": &fstest.MapFile{Data: []byte(tc.sql)},
+			}
+			if err := ValidateMigrations(memFS, "migrations"); err == nil {
+				t.Errorf("%s: expected DROP TABLE to be rejected, got nil", tc.name)
+			}
+		}
+
+		// Single-quoted string literal mentioning DROP TABLE must NOT false-positive.
+		safeLiteralFS := fstest.MapFS{
+			"migrations/00001_literal.sql": &fstest.MapFile{
+				Data: []byte("-- +goose Up\nINSERT INTO doc VALUES ('never run DROP TABLE in prod', 'it''s /* safe */');\n"),
+			},
+		}
+		if err := ValidateMigrations(safeLiteralFS, "migrations"); err != nil {
+			t.Errorf("unexpected false positive on string literal: %v", err)
+		}
+	})
+
 	t.Run("validates testdata/migrations fixtures", func(t *testing.T) {
 		t.Parallel()
 		if err := ValidateMigrations(os.DirFS("testdata"), "migrations"); err != nil {

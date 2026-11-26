@@ -1,6 +1,7 @@
 package memcache
 
 import (
+	"container/list"
 	"hash/maphash"
 	"sync"
 	"time"
@@ -28,15 +29,18 @@ type Decision struct {
 }
 
 type windowEntry struct {
+	key         string
 	prevCount   int
 	currCount   int
 	windowStart time.Time
 	lastSeen    time.Time
+	elem        *list.Element
 }
 
 type limiterShard struct {
 	mu      sync.Mutex
 	entries map[string]*windowEntry
+	lru     *list.List
 }
 
 // SlidingWindowLimiter is a pure in-process sharded O(1) two-window weighted
@@ -84,6 +88,7 @@ func NewSlidingWindowLimiter(opts LimiterOptions) *SlidingWindowLimiter {
 	for i := range shards {
 		shards[i] = &limiterShard{
 			entries: make(map[string]*windowEntry),
+			lru:     list.New(),
 		}
 	}
 	return &SlidingWindowLimiter{
@@ -125,7 +130,12 @@ func (l *SlidingWindowLimiter) RecordFailure(key string) Decision {
 func (l *SlidingWindowLimiter) Reset(key string) {
 	s := l.shardFor(key)
 	s.mu.Lock()
-	delete(s.entries, key)
+	if ent, ok := s.entries[key]; ok {
+		if ent.elem != nil {
+			s.lru.Remove(ent.elem)
+		}
+		delete(s.entries, key)
+	}
 	s.mu.Unlock()
 }
 
@@ -138,6 +148,9 @@ func (l *SlidingWindowLimiter) PurgeExpired() int {
 		s.mu.Lock()
 		for k, ent := range s.entries {
 			if now.Sub(ent.windowStart) >= cutoff {
+				if ent.elem != nil {
+					s.lru.Remove(ent.elem)
+				}
 				delete(s.entries, k)
 				removed++
 			}
@@ -166,9 +179,10 @@ func (l *SlidingWindowLimiter) evaluate(s *limiterShard, key string, now time.Ti
 			}
 		}
 		if l.maxPerShard > 0 && len(s.entries) >= l.maxPerShard {
-			s.evictStaleOrOldest(now, l.window)
+			s.evictOldestLocked()
 		}
-		ent = &windowEntry{windowStart: now, lastSeen: now}
+		ent = &windowEntry{key: key, windowStart: now, lastSeen: now}
+		ent.elem = s.lru.PushFront(ent)
 		s.entries[key] = ent
 	}
 
@@ -197,6 +211,12 @@ func (l *SlidingWindowLimiter) evaluate(s *limiterShard, key string, now time.Ti
 	blocked := (add == 0 && effective >= float64(l.limit)) ||
 		(add > 0 && effective+float64(add) > float64(l.limit))
 	if blocked {
+		if add > 0 {
+			ent.lastSeen = now
+			if ent.elem != nil {
+				s.lru.MoveToFront(ent.elem)
+			}
+		}
 		retryAfter := l.window - elapsed
 		if retryAfter < time.Second {
 			retryAfter = time.Second
@@ -212,6 +232,9 @@ func (l *SlidingWindowLimiter) evaluate(s *limiterShard, key string, now time.Ti
 	if add > 0 {
 		ent.currCount += add
 		ent.lastSeen = now
+		if ent.elem != nil {
+			s.lru.MoveToFront(ent.elem)
+		}
 		effective += float64(add)
 	}
 	rem := l.limit - int(effective)
@@ -225,29 +248,10 @@ func (l *SlidingWindowLimiter) evaluate(s *limiterShard, key string, now time.Ti
 	}
 }
 
-func (s *limiterShard) evictStaleOrOldest(now time.Time, window time.Duration) {
-	cutoff := 2 * window
-	removed := 0
-	for k, ent := range s.entries {
-		if now.Sub(ent.windowStart) >= cutoff {
-			delete(s.entries, k)
-			removed++
-		}
-	}
-	if removed > 0 {
-		return
-	}
-	var oldestKey string
-	var oldestTime time.Time
-	first := true
-	for k, ent := range s.entries {
-		if first || ent.lastSeen.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = ent.lastSeen
-			first = false
-		}
-	}
-	if !first {
-		delete(s.entries, oldestKey)
+func (s *limiterShard) evictOldestLocked() {
+	if oldest := s.lru.Back(); oldest != nil {
+		evicted := oldest.Value.(*windowEntry)
+		s.lru.Remove(oldest)
+		delete(s.entries, evicted.key)
 	}
 }

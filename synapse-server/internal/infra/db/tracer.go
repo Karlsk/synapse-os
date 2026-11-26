@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
@@ -96,8 +97,8 @@ func (t *slowQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data p
 
 func compactSQL(raw string, maxLen int) string {
 	collapsed := strings.Join(strings.Fields(raw), " ")
-	if maxLen > 0 && len(collapsed) > maxLen {
-		return collapsed[:maxLen] + "..."
+	if maxLen > 0 && utf8.RuneCountInString(collapsed) > maxLen {
+		return string([]rune(collapsed)[:maxLen]) + "..."
 	}
 	return collapsed
 }

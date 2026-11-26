@@ -262,3 +262,50 @@ func TestBackgroundGroupConcurrentGoAndStopNoWaitGroupRace(t *testing.T) {
 		}
 	}
 }
+
+func TestShutdownManagerRecoversPanicAndBoundsNonCooperativeHook(t *testing.T) {
+	t.Parallel()
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	sm := NewShutdownManager(2*time.Second, logger)
+
+	release := make(chan struct{})
+	defer close(release)
+
+	var storageClosed atomic.Bool
+
+	sm.Register(PhaseHTTP, "panicking-http", 200*time.Millisecond, func(_ context.Context) error {
+		panic("unexpected-http-panic")
+	})
+	sm.Register(PhaseBackground, "cooperative-bg", 40*time.Millisecond, func(ctx context.Context) error {
+		<-ctx.Done()
+		return errors.New("stuck tasks [worker-a]: " + ctx.Err().Error())
+	})
+	sm.Register(PhaseConnections, "stuck-conn", 60*time.Millisecond, func(_ context.Context) error {
+		// Deliberately ignores ctx.Done()
+		<-release
+		return nil
+	})
+	sm.Register(PhaseStorage, "pg-pool", 200*time.Millisecond, func(_ context.Context) error {
+		storageClosed.Store(true)
+		return nil
+	})
+
+	start := time.Now()
+	err := sm.Shutdown(context.Background())
+	elapsed := time.Since(start)
+
+	if !storageClosed.Load() {
+		t.Fatalf("PhaseStorage hook did not run after earlier panic/timeout")
+	}
+	if elapsed > 600*time.Millisecond {
+		t.Fatalf("Shutdown blocked too long on non-cooperative hook: %v", elapsed)
+	}
+	if err == nil ||
+		!strings.Contains(err.Error(), "unexpected-http-panic") ||
+		!strings.Contains(err.Error(), "stuck tasks [worker-a]") ||
+		!errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown() error = %v, want panic + cooperative diagnostic + DeadlineExceeded", err)
+	}
+}

@@ -205,4 +205,9 @@ func TestShardedCacheGetOrLoadCallerCancelDoesNotPoisonPeer(t *testing.T) {
 	if v, ok := c.Get("oauth:acme:user1"); !ok || v != "shared-value" {
 		t.Fatalf("cached value = (%q, %v), want (shared-value, true)", v, ok)
 	}
+	if v, err := c.GetOrLoad(nil, "nil-ctx-key", time.Minute, func(_ context.Context) (string, error) {
+		return "ok", nil
+	}); err != nil || v != "ok" {
+		t.Fatalf("GetOrLoad(nil) = (%q, %v), want (ok, nil)", v, err)
+	}
 }

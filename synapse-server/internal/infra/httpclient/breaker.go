@@ -24,9 +24,10 @@ func (e *upstreamStatusErr) Error() string {
 }
 
 type breakerEntry struct {
-	key  string
-	host string
-	cb   *gobreaker.CircuitBreaker[*http.Response]
+	key     string
+	service string
+	host    string
+	cb      *gobreaker.CircuitBreaker[*http.Response]
 }
 
 type breakerRT struct {
@@ -118,9 +119,13 @@ func (b *breakerRT) getOrCreate(service, host string) *gobreaker.CircuitBreaker[
 			evicted := oldest.Value.(*breakerEntry)
 			delete(b.entries, evicted.key)
 			b.lruOrder.Remove(oldest)
+			if b.stateGauge != nil {
+				b.stateGauge.DeleteLabelValues(evicted.service, evicted.host)
+			}
 		}
 	}
 
+	entry := &breakerEntry{key: key, service: service, host: host}
 	st := gobreaker.Settings{
 		Name:        key,
 		MaxRequests: b.policy.MaxRequests,
@@ -144,19 +149,23 @@ func (b *breakerRT) getOrCreate(service, host string) *gobreaker.CircuitBreaker[
 			return errors.Is(err, apperror.ErrEgressDenied) || errors.Is(err, context.Canceled)
 		},
 		OnStateChange: func(_ string, _ gobreaker.State, to gobreaker.State) {
-			b.recordState(service, host, to)
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			if elem, ok := b.entries[key]; ok && elem.Value == entry {
+				b.recordStateLocked(service, host, to)
+			}
 		},
 	}
 
-	cb := gobreaker.NewCircuitBreaker[*http.Response](st)
-	b.recordState(service, host, gobreaker.StateClosed)
+	entry.cb = gobreaker.NewCircuitBreaker[*http.Response](st)
+	b.recordStateLocked(service, host, gobreaker.StateClosed)
 
-	elem := b.lruOrder.PushFront(&breakerEntry{key: key, host: host, cb: cb})
+	elem := b.lruOrder.PushFront(entry)
 	b.entries[key] = elem
-	return cb
+	return entry.cb
 }
 
-func (b *breakerRT) recordState(service, host string, state gobreaker.State) {
+func (b *breakerRT) recordStateLocked(service, host string, state gobreaker.State) {
 	if b.stateGauge == nil {
 		return
 	}

@@ -21,10 +21,9 @@ type MigrationResult struct {
 }
 
 var (
-	dropTableRe    = regexp.MustCompile(`(?i)\bDROP\s+TABLE\b`)
-	blockCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	gooseUpRe      = regexp.MustCompile(`(?i)^\s*--\s*\+goose\s+up\b`)
-	gooseDownRe    = regexp.MustCompile(`(?i)^\s*--\s*\+goose\s+down\b`)
+	dropTableRe = regexp.MustCompile(`(?i)\bDROP\s+TABLE\b`)
+	gooseUpRe   = regexp.MustCompile(`(?i)^\s*--\s*\+goose\s+up\b`)
+	gooseDownRe = regexp.MustCompile(`(?i)^\s*--\s*\+goose\s+down\b`)
 )
 
 func subMigrationsFS(migrationsFS fs.FS, dir string) (fs.FS, error) {
@@ -70,7 +69,7 @@ func ValidateMigrations(migrationsFS fs.FS, dir string) error {
 }
 
 // extractGooseUpSQL returns only the executable SQL between -- +goose Up and -- +goose Down
-// with both block (/* ... */) and line (-- ...) comments stripped.
+// with both block (/* ... */) and line (-- ...) comments stripped in a single lexical pass.
 func extractGooseUpSQL(content string) string {
 	lines := strings.Split(content, "\n")
 	var upLines []string
@@ -84,17 +83,59 @@ func extractGooseUpSQL(content string) string {
 			inUp = false
 			continue
 		}
-		if !inUp {
+		if inUp {
+			upLines = append(upLines, line)
+		}
+	}
+	return stripSQLComments(strings.Join(upLines, "\n"))
+}
+
+func stripSQLComments(sql string) string {
+	var out strings.Builder
+	out.Grow(len(sql))
+	for i := 0; i < len(sql); {
+		// Replace single-quoted string literal contents with '' so 'application/*'
+		// or '--' inside literals cannot open fake comments or trigger false positives.
+		if sql[i] == '\'' {
+			out.WriteString("''")
+			i++
+			for i < len(sql) {
+				if sql[i] == '\'' {
+					i++
+					if i < len(sql) && sql[i] == '\'' {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
 			continue
 		}
-		// Strip trailing single-line SQL comments.
-		if idx := strings.Index(line, "--"); idx >= 0 {
-			line = line[:idx]
+		if sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-' {
+			i += 2
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+			continue
 		}
-		upLines = append(upLines, line)
+		if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
+			i += 2
+			for i+1 < len(sql) && !(sql[i] == '*' && sql[i+1] == '/') {
+				i++
+			}
+			if i+1 < len(sql) {
+				i += 2
+			} else {
+				i = len(sql)
+			}
+			out.WriteByte(' ')
+			continue
+		}
+		out.WriteByte(sql[i])
+		i++
 	}
-	joined := strings.Join(upLines, "\n")
-	return blockCommentRe.ReplaceAllString(joined, " ")
+	return out.String()
 }
 
 // MigrateUp validates all forward migrations, acquires a blocking PostgreSQL advisory

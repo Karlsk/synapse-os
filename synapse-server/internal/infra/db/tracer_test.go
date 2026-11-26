@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -160,5 +161,20 @@ func TestCompactSQLTruncation(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "...") {
 		t.Fatalf("expected truncated SQL to end with '...', got %q", got)
+	}
+
+	// Multibyte UTF-8 SQL must truncate on rune boundaries without producing invalid UTF-8.
+	utf8SQL := "SELECT '" + strings.Repeat("中", 40) + "'"
+	gotUTF8 := compactSQL(utf8SQL, 16)
+	if !utf8.ValidString(gotUTF8) {
+		t.Fatalf("compactSQL produced invalid UTF-8: %q", gotUTF8)
+	}
+	if utf8.RuneCountInString(gotUTF8) != 19 { // 16 runes + "..."
+		t.Fatalf("compactSQL rune count = %d, want 19 (%q)", utf8.RuneCountInString(gotUTF8), gotUTF8)
+	}
+
+	// Open with nil context must not panic (fails cleanly on invalid DSN).
+	if _, err := Open(nil, Config{DSN: "://invalid"}); err == nil {
+		t.Fatalf("expected parse error for invalid DSN")
 	}
 }

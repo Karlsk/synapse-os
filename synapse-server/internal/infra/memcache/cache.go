@@ -192,6 +192,9 @@ func (c *ShardedCache[K, V]) GetOrLoad(
 	if loader == nil {
 		return zero, fmt.Errorf("memcache: nil loader")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ctx.Err(); err != nil {
 		return zero, err
 	}

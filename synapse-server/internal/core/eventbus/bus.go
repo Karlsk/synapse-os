@@ -57,7 +57,9 @@ type Bus struct {
 	nextID   atomic.Uint64
 	maxAsync int
 	sem      chan struct{}
-	wg       sync.WaitGroup
+	asyncMu  sync.Mutex
+	inFlight int
+	idleCh   chan struct{}
 	logger   *slog.Logger
 	onPanic  func(eventName string, recovered any, stack []byte)
 }
@@ -132,9 +134,9 @@ func PublishAsync[T any](ctx context.Context, b *Bus, ev T) {
 	evName := typ.String()
 	for _, h := range handlers {
 		entry := h
-		b.wg.Add(1)
+		b.beginAsync()
 		go func() {
-			defer b.wg.Done()
+			defer b.endAsync()
 			b.sem <- struct{}{}
 			defer func() { <-b.sem }()
 			b.invokeSafe(detached, evName, entry.fn, ev)
@@ -143,22 +145,48 @@ func PublishAsync[T any](ctx context.Context, b *Bus, ev T) {
 }
 
 // Drain blocks until all in-flight asynchronous event handlers complete or ctx
-// expires.
+// expires. Safe to call concurrently with PublishAsync and repeatedly.
 func (b *Bus) Drain(ctx context.Context) error {
 	if b == nil {
 		return nil
 	}
-	done := make(chan struct{})
-	go func() {
-		b.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	for {
+		b.asyncMu.Lock()
+		if b.inFlight == 0 {
+			b.asyncMu.Unlock()
+			return nil
+		}
+		ch := b.idleCh
+		b.asyncMu.Unlock()
+
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (b *Bus) beginAsync() {
+	b.asyncMu.Lock()
+	b.inFlight++
+	if b.inFlight == 1 {
+		b.idleCh = make(chan struct{})
+	}
+	b.asyncMu.Unlock()
+}
+
+func (b *Bus) endAsync() {
+	b.asyncMu.Lock()
+	b.inFlight--
+	if b.inFlight == 0 && b.idleCh != nil {
+		close(b.idleCh)
+		b.idleCh = nil
+	}
+	b.asyncMu.Unlock()
 }
 
 func (b *Bus) snapshot(typ reflect.Type) []subEntry {

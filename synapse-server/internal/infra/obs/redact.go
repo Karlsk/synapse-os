@@ -87,6 +87,9 @@ func redactAttr(a slog.Attr) slog.Attr {
 	if a.Value.Kind() == slog.KindString {
 		return slog.String(a.Key, redactString(a.Value.String()))
 	}
+	if errVal, ok := a.Value.Any().(error); ok && errVal != nil {
+		return slog.String(a.Key, redactString(errVal.Error()))
+	}
 	return a
 }
 

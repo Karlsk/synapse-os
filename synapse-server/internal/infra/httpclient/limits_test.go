@@ -165,3 +165,27 @@ func TestStreamingModeNoTotalTimeoutAndIdleReadTimeout(t *testing.T) {
 		}
 	})
 }
+
+func TestIdleTimeoutReadCloserReusesTimerAcrossReads(t *testing.T) {
+	t.Parallel()
+
+	rc := newIdleTimeoutReadCloser(io.NopCloser(bytes.NewReader([]byte("abcdefghij"))), 500*time.Millisecond, "sse", "example.com")
+	defer func() { _ = rc.Close() }()
+
+	buf := make([]byte, 2)
+	var firstTimer *time.Timer
+	for i := range 5 {
+		n, err := rc.Read(buf)
+		if err != nil || n != 2 {
+			t.Fatalf("Read #%d = (%d, %v), want (2, nil)", i+1, n, err)
+		}
+		if rc.timer == nil {
+			t.Fatalf("expected timer to be initialized on Read #%d", i+1)
+		}
+		if firstTimer == nil {
+			firstTimer = rc.timer
+		} else if rc.timer != firstTimer {
+			t.Fatalf("expected timer to be reused across Reads without re-allocating")
+		}
+	}
+}

@@ -113,3 +113,62 @@ func TestSlidingWindowLimiterAntiBruteForceClockAdvanceAndMaxKeys(t *testing.T) 
 		t.Fatalf("Allow(k3 after 2x window reset) = %+v, want Allowed=true Remaining=3", dec)
 	}
 }
+
+func TestSlidingWindowLimiterO1LRUPreservesActiveBlockedKey(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	lim := NewSlidingWindowLimiter(LimiterOptions{
+		Limit:   2,
+		Window:  10 * time.Minute,
+		Shards:  1,
+		MaxKeys: 3,
+	})
+	lim.nowFn = func() time.Time { return now }
+
+	// Lock "attacker"
+	lim.RecordFailure("attacker")
+	lim.RecordFailure("attacker")
+	if lim.Peek("attacker").Allowed {
+		t.Fatalf("expected attacker to be blocked")
+	}
+
+	// Fill remaining capacity with k1, k2; then touch attacker (blocked) so it moves to MRU front
+	lim.Allow("k1")
+	lim.Allow("k2")
+	if lim.RecordFailure("attacker").Allowed {
+		t.Fatalf("expected attacker to remain blocked")
+	}
+
+	// Inserting k3 must evict k1 (LRU), keeping attacker blocked and preserving map/list parity
+	lim.Allow("k3")
+	if lim.Peek("attacker").Allowed {
+		t.Fatalf("active blocked attacker should not be evicted before older LRU key k1")
+	}
+
+	s := lim.shards[0]
+	s.mu.Lock()
+	entriesLen := len(s.entries)
+	lruLen := s.lru.Len()
+	_, hasK1 := s.entries["k1"]
+	s.mu.Unlock()
+
+	if entriesLen != 3 || lruLen != 3 {
+		t.Fatalf("entriesLen=%d lruLen=%d, want both 3", entriesLen, lruLen)
+	}
+	if hasK1 {
+		t.Fatalf("expected oldest key k1 to be evicted")
+	}
+
+	// Reset and PurgeExpired must keep entries and lru list in sync
+	lim.Reset("k2")
+	now = now.Add(25 * time.Minute)
+	lim.PurgeExpired()
+	s.mu.Lock()
+	entriesLen = len(s.entries)
+	lruLen = s.lru.Len()
+	s.mu.Unlock()
+	if entriesLen != 0 || lruLen != 0 {
+		t.Fatalf("after Reset+PurgeExpired: entriesLen=%d lruLen=%d, want 0/0", entriesLen, lruLen)
+	}
+}

@@ -152,3 +152,62 @@ func TestEventBusPublishAsyncDetachConcurrencyCapAndDrain(t *testing.T) {
 		t.Fatalf("Drain after unblock = %v", err)
 	}
 }
+
+func TestEventBusConcurrentPublishAsyncNestedAsyncAndDrainNoRace(t *testing.T) {
+	t.Parallel()
+
+	type childEvent struct{ ID string }
+	b := New(WithMaxAsyncConcurrency(8))
+
+	var childCount atomic.Int32
+	Subscribe[sampleEvent](b, func(ctx context.Context, ev sampleEvent) {
+		PublishAsync(ctx, b, childEvent{ID: ev.ID})
+	})
+	Subscribe[childEvent](b, func(_ context.Context, _ childEvent) {
+		childCount.Add(1)
+	})
+
+	const publishers = 8
+	const perPub = 20
+	var pubWG sync.WaitGroup
+	var drainWG sync.WaitGroup
+
+	stopDrain := make(chan struct{})
+	for range 4 {
+		drainWG.Add(1)
+		go func() {
+			defer drainWG.Done()
+			for {
+				select {
+				case <-stopDrain:
+					return
+				default:
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+					_ = b.Drain(ctx)
+					cancel()
+				}
+			}
+		}()
+	}
+
+	for range publishers {
+		pubWG.Add(1)
+		go func() {
+			defer pubWG.Done()
+			for range perPub {
+				PublishAsync(context.Background(), b, sampleEvent{ID: "x"})
+			}
+		}()
+	}
+
+	pubWG.Wait()
+	close(stopDrain)
+	drainWG.Wait()
+
+	if err := b.Drain(nil); err != nil {
+		t.Fatalf("final Drain(nil) error = %v", err)
+	}
+	if got := childCount.Load(); got != publishers*perPub {
+		t.Fatalf("childCount = %d, want %d", got, publishers*perPub)
+	}
+}

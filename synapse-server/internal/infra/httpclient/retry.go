@@ -65,12 +65,14 @@ func (rt *retryRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	var lastRetryAfter time.Duration
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		attemptReq := req
 		if attempt > 1 {
-			if err := resetRequestBody(req); err != nil {
+			attemptReq = req.Clone(req.Context())
+			if err := resetRequestBody(attemptReq); err != nil {
 				return nil, classifyError(svc, host, attempt, lastStatus, lastRetryAfter, err)
 			}
 		}
-		resp, err := rt.next.RoundTrip(req)
+		resp, err := rt.next.RoundTrip(attemptReq)
 		if err == nil {
 			if !isRetryableStatus(resp.StatusCode) {
 				return resp, nil

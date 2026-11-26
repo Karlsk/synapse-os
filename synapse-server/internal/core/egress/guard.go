@@ -257,9 +257,34 @@ func (g *Guard) DialContext(ctx context.Context, network, addr string) (net.Conn
 		return nil, err
 	}
 
+	totalDeadline := time.Now().Add(g.dialTimeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(totalDeadline) {
+		totalDeadline = ctxDeadline
+	}
+
 	var lastErr error
-	for _, ip := range ips {
-		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+	for i, ip := range ips {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		remaining := time.Until(totalDeadline)
+		if remaining <= 0 {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, context.DeadlineExceeded
+		}
+		// Split remaining dial budget across remaining candidate IPs so an unreachable
+		// blackhole address (e.g., IPv6 in an IPv4-only enterprise network) cannot
+		// multiply total dial latency or starve fallback IPs.
+		left := len(ips) - i
+		perAttempt := remaining / time.Duration(left)
+		if perAttempt <= 0 {
+			perAttempt = remaining
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, perAttempt)
+		conn, err := dialer.DialContext(attemptCtx, network, net.JoinHostPort(ip.String(), port))
+		cancel()
 		if err == nil {
 			return conn, nil
 		}

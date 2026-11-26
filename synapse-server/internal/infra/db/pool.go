@@ -118,6 +118,9 @@ func applyDefaults(cfg *Config) {
 // Open initializes a tuned pgxpool.Pool enforcing TimeZone=UTC, verifies connectivity
 // with an initial Ping, and optionally registers Prometheus pool/query metrics.
 func Open(ctx context.Context, cfg Config, opts ...Option) (*DB, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	o := openOptions{logger: slog.Default()}
 	for _, fn := range opts {
 		if fn != nil {
@@ -177,6 +180,9 @@ func (d *DB) Pool() *pgxpool.Pool {
 // Ping verifies PostgreSQL connectivity, applying a default 2-second timeout when
 // ctx has no deadline, and returns the measured latency.
 func (d *DB) Ping(ctx context.Context) (time.Duration, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 2*time.Second)

@@ -115,6 +115,12 @@ func (lease *LockLease) Release(ctx context.Context) error {
 	}
 	defer lease.conn.Release()
 
+	if ctx == nil || ctx.Err() != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+	}
+
 	var unlocked bool
 	if err := lease.conn.QueryRow(ctx, `SELECT pg_advisory_unlock($1)`, lease.keyID).Scan(&unlocked); err != nil {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

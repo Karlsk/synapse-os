@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -104,6 +105,7 @@ func TestRedactingHandlerAndRedactDSN(t *testing.T) {
 		),
 		"header_dump", "Header: Bearer eyJhbGciOiJIUzI1NiJ9.inlineToken",
 		"db_url", "postgres://synapse:mysecretpwd@127.0.0.1:5432/synapse?sslmode=disable",
+		"err", errors.New("dial postgres://synapse:errpwd999@127.0.0.1:5432/synapse with Bearer eyJhbGciOiJIUzI1NiJ9.errToken"),
 	)
 
 	out := buf.String()
@@ -115,6 +117,8 @@ func TestRedactingHandlerAndRedactDSN(t *testing.T) {
 		"topsecret",
 		"tok-abc-123",
 		"mysecretpwd",
+		"errpwd999",
+		"errToken",
 	}
 	for _, secret := range forbiddenPlaintexts {
 		if strings.Contains(out, secret) {
@@ -150,7 +154,7 @@ func TestRedactingHandlerAndRedactDSN(t *testing.T) {
 func TestNewLoggerFileDualWriteAndValidation(t *testing.T) {
 	t.Parallel()
 
-	logFile := filepath.Join(t.TempDir(), "synapse.log")
+	logFile := filepath.Join(t.TempDir(), "nested", "logs", "synapse.log")
 	var buf bytes.Buffer
 
 	logger, closeFn, err := NewLogger(LoggerConfig{

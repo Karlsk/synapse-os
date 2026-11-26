@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -86,6 +87,11 @@ func NewLogger(cfg LoggerConfig) (logger *slog.Logger, closeFn func() error, err
 
 	closeFn = func() error { return nil }
 	if filePath := strings.TrimSpace(cfg.File); filePath != "" {
+		if dir := filepath.Dir(filePath); dir != "" && dir != "." {
+			if mkErr := os.MkdirAll(dir, 0o750); mkErr != nil {
+				return nil, nil, fmt.Errorf("create log dir %q: %w", dir, mkErr)
+			}
+		}
 		f, openErr := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 		if openErr != nil {
 			return nil, nil, fmt.Errorf("open log file %q: %w", filePath, openErr)

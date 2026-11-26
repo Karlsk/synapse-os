@@ -31,7 +31,13 @@ type fakeLockConn struct {
 	releaseCnt  int
 }
 
-func (f *fakeLockConn) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+func (f *fakeLockConn) QueryRow(ctx context.Context, _ string, _ ...any) pgx.Row {
+	if ctx == nil {
+		return fakeRow{err: errors.New("nil context")}
+	}
+	if err := ctx.Err(); err != nil {
+		return fakeRow{err: err}
+	}
 	return f.row
 }
 
@@ -119,6 +125,28 @@ func TestLockLeaseReleaseClosesDirtyConnOnUnlockFailure(t *testing.T) {
 		}
 		if fc.releaseCnt != 1 {
 			t.Fatalf("releaseCnt = %d, want 1", fc.releaseCnt)
+		}
+	})
+
+	t.Run("canceled or nil caller ctx detaches clean timeout without destroying conn", func(t *testing.T) {
+		t.Parallel()
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		fc1 := &fakeLockConn{row: fakeRow{val: true}}
+		if err := (&LockLease{conn: fc1, keyID: 7}).Release(canceledCtx); err != nil {
+			t.Fatalf("Release(canceledCtx) error = %v", err)
+		}
+		if fc1.closedCount != 0 || fc1.releaseCnt != 1 {
+			t.Fatalf("canceledCtx: closed=%d release=%d, want 0/1", fc1.closedCount, fc1.releaseCnt)
+		}
+
+		fc2 := &fakeLockConn{row: fakeRow{val: true}}
+		if err := (&LockLease{conn: fc2, keyID: 8}).Release(nil); err != nil {
+			t.Fatalf("Release(nil) error = %v", err)
+		}
+		if fc2.closedCount != 0 || fc2.releaseCnt != 1 {
+			t.Fatalf("nil ctx: closed=%d release=%d, want 0/1", fc2.closedCount, fc2.releaseCnt)
 		}
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/signal"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"syscall"
@@ -112,7 +113,7 @@ func (m *ShutdownManager) Shutdown(ctx context.Context) error {
 		}
 		phaseCtx, cancel := context.WithTimeout(context.Background(), budget)
 		start := time.Now()
-		err := h.fn(phaseCtx)
+		err := m.runHook(phaseCtx, h)
 		cancel()
 		if err != nil {
 			m.logger.Warn("shutdown hook returned error",
@@ -124,6 +125,36 @@ func (m *ShutdownManager) Shutdown(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (m *ShutdownManager) runHook(ctx context.Context, h shutdownHook) error {
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.logger.Error("shutdown hook panicked",
+					"phase", h.phase, "hook", h.name, "panic", r, "stack", string(debug.Stack()))
+				done <- fmt.Errorf("panic: %v", r)
+			}
+		}()
+		done <- h.fn(ctx)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		// Give cooperative hooks that wake on <-ctx.Done() (e.g., BackgroundGroup.Stop
+		// formatting stuck task names or http.Server.Shutdown closing idle conns) a brief
+		// grace window to return their own error before abandoning a deadlocked goroutine.
+		grace := time.NewTimer(25 * time.Millisecond)
+		defer grace.Stop()
+		select {
+		case err := <-done:
+			return err
+		case <-grace.C:
+			return ctx.Err()
+		}
+	}
 }
 
 // NotifySignalContext returns a context canceled upon receiving SIGINT or SIGTERM.
